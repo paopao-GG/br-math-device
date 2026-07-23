@@ -1,34 +1,57 @@
 # BR Math Device
 
-Arduino Mega firmware for a 5-round multiple-choice quiz prop. Questions are on
-paper; the device judges the answers. See [TDD.md](TDD.md) for the original design.
+Arduino Mega firmware for a 3-level multiple-choice quiz prop. Questions are on
+paper; the device judges the answers. See [TDD.md](TDD.md) for the full design.
 
 ## How it plays
 
+Three levels hold nine questions between them. One LED and one button belong to each
+**level**, not to each question:
+
+| Level | Questions | Code digits it locks | Button | LED |
+|---|---|---|---|---|
+| 1 | 5 | 1, 2, 3 | 23 | 22 |
+| 2 | 3 | 4 | 25 | 24 |
+| 3 | 1 | 5 | 27 | 26 |
+
 On power-up the device picks a random 5-digit code (digits 1–9, different every
-boot) and shows it on the LCD:
+boot) and shows it on the LCD. Each level then runs in two phases:
+
+**Quiz phase** — scan one of the four RFID cards (A/B/C/D) as the answer, press the
+level's button.
 
 ```
-CODE:47391 Q3:C     <- the code, the current round, the card currently scanned
-1:42:73:34:-5:-     <- the five digit slots: locked, live, then not yet reached
+CODE:47391 L1Q3     <- the code, then level 1 question 3
+ANS:C   [##...]     <- the scanned card, then this level's 5 questions
 ```
 
-In round N the player:
+- correct → the LED **blinks twice** and the next question opens
+- wrong, or no card scanned → **no blink**, miss tune, and the *same question stays
+  live*. There is no way past a question except by answering it.
 
-1. scans one of the four RFID cards (A/B/C/D) as their answer — the buzzer beeps to
-   confirm the read,
-2. dials the potentiometer to digit N of the code,
-3. presses button N to lock in.
+**Code phase** — once every question in the level is cleared, dial the level's share
+of the code on the potentiometer and press the same button to lock each digit.
 
-**LED N lights only if both the card and the digit are correct.** A wrong card, a
-wrong digit, or no card at all scores the round wrong and the game moves on — there
-are no retries. Each button has its own tune.
+```
+CODE:47391 L1D2     <- level 1, code digit 2 of the 3 it owns
+DIAL:7  [47_..]     <- the live pot digit, then all five code slots
+```
 
-After round 5 the LCD shows `SCORE: n/5`, the buzzer plays a win or fail tune, and
-the LEDs stay lit showing which rounds were right. Power-cycle to play again with a
-new code.
+- correct digit → LED blinks once, digit latches, next slot opens
+- wrong digit → no blink, miss tune, retry the same slot
+- the level's **last** digit → LED goes **solid** and the next level begins
 
-The answer key is fixed at **C, D, A, B, C** (`ANSWER_KEY` in [config.h](config.h)).
+After level 3's digit locks, all three LEDs are solid and the LCD shows `SOLVED!`
+with the code and a `MISSES:n` count. Because a question can only be retried, every
+game ends solved — the miss count is what says how cleanly. Power-cycle for a new code.
+
+The answer key is fixed (`ANSWER_KEY` in [config.h](config.h)):
+
+| Level | Q1 | Q2 | Q3 | Q4 | Q5 |
+|---|---|---|---|---|---|
+| **1** | **B** | **D** | **A** | **C** | **D** |
+| **2** | **A** | **C** | **B** | — | — |
+| **3** | **D** | — | — | — | — |
 
 ## Wiring (Arduino Mega 2560)
 
@@ -40,8 +63,8 @@ the bench.
 | RC522 RFID | SS→53, SCK→52, MOSI→51, MISO→50, RST→49, **VCC→3.3V**, GND→GND |
 | 1602 I2C LCD | SDA→20, SCL→21, VCC→5V, GND→GND |
 | Potentiometer ×1 | wiper → A0; outer legs → 5V and GND |
-| LEDs ×5 | 22, 24, 26, 28, 30 → 220Ω resistor → LED → GND |
-| Buttons ×5 | 23, 25, 27, 29, 31 → button → GND (no resistors; internal pullups) |
+| LEDs ×3 | 22, 24, 26 → 220Ω resistor → LED → GND |
+| Buttons ×3 | 23, 25, 27 → button → GND (no resistors; internal pullups) |
 | Passive buzzer | 8 → buzzer → GND |
 | A15 | **leave unconnected** |
 
@@ -52,8 +75,11 @@ Two things bite people here:
 - **A15 must stay floating.** Its electrical noise is what seeds the random code.
   Wire anything to it and every boot produces the same code.
 
-LED 1 goes with button 1 and round 1, and so on down the line. The single potentiometer is
-shared by every round.
+LED 1 goes with button 1 and level 1, and so on. The single potentiometer is shared by
+every level.
+
+LEDs on 28/30 and buttons on 29/31 are left over from the earlier five-round build. They
+stay wired and are never read or driven — the firmware doesn't even configure those pins.
 
 ## Libraries
 
@@ -83,7 +109,7 @@ Card detected!
 
 **2. Paste them into `CARD_UIDS` in [config.h](config.h), in the order A, B, C, D.**
 The order matters — the answer key indexes into that table, so a wrong order scores
-every round against the wrong card. If a card prints nothing at all, the reader is
+every question against the wrong card. If a card prints nothing at all, the reader is
 miswired or on 5V.
 
 **3. Flash the game.** Open `br-math-device.ino` in the Arduino IDE and upload.
@@ -98,12 +124,15 @@ game, `pio run -d tools/uid_dump -t upload` for the UID reader.)
   (config.h). It beeps on every card read, including cards that aren't one of the four.
 - Digit flickering between two values as the pot rests: raise `POT_HYSTERESIS`. Pot
   feeling sticky or refusing to reach 1 or 9: lower it.
-- Turning the pot must only ever change the **current** round's digit. If it also moves a
+- Turning the pot must only ever change the digit in the `_` slot. If it also moves a
   digit you already locked in, the latch is broken.
-- The one test worth doing deliberately: play a round with the **right card but a
-  wrong digit**. The LED must stay off. That proves the both-must-match rule is live.
-- The Serial Monitor narrates the whole game — the code, each round's expected answer,
-  what was scanned, and why a round scored the way it did.
+- The pot is deliberately dead during a quiz phase — `DIAL:` only appears once all of a
+  level's questions are answered. That's not a fault.
+- The one test worth doing deliberately: answer a question with the **wrong card**. The
+  LED must not blink and the LCD must still show the same `LxQy`. That proves the
+  retry rule is live — a question can't be skipped, only answered.
+- The Serial Monitor narrates the whole game — the code, each question's expected card,
+  each slot's expected digit, what was scanned or dialed, and every miss.
 
 ## Layout
 

@@ -1,0 +1,58 @@
+//
+// !!! WARNING !!! AUTO-GENERATED FILE!
+// PLEASE DO NOT MODIFY IT AND USE "platformio.ini":
+// https://docs.platformio.org/page/projectconf/section_env_build.html#build-flags
+//
+{
+    "configurations": [
+        {
+            "name": "PlatformIO",
+            "includePath": [
+                "C:/Users/satui/OneDrive/Desktop/04 COMISSION_PROJECTS/br-math-device",
+                "C:/Users/satui/OneDrive/Desktop/04 COMISSION_PROJECTS/br-math-device/.pio/libdeps/game/Arduino-LiquidCrystal-I2C-library",
+                "C:/Users/satui/.platformio/packages/framework-arduino-avr/libraries/Wire/src",
+                "C:/Users/satui/OneDrive/Desktop/04 COMISSION_PROJECTS/br-math-device/.pio/libdeps/game/MFRC522/src",
+                "C:/Users/satui/.platformio/packages/framework-arduino-avr/libraries/SPI/src",
+                "C:/Users/satui/.platformio/packages/framework-arduino-avr/cores/arduino",
+                "C:/Users/satui/.platformio/packages/framework-arduino-avr/variants/mega",
+                "C:/Users/satui/.platformio/packages/framework-arduino-avr/libraries/EEPROM/src",
+                "C:/Users/satui/.platformio/packages/framework-arduino-avr/libraries/HID/src",
+                "C:/Users/satui/.platformio/packages/framework-arduino-avr/libraries/SoftwareSerial/src",
+                ""
+            ],
+            "browse": {
+                "limitSymbolsToIncludedHeaders": true,
+                "path": [
+                    "C:/Users/satui/OneDrive/Desktop/04 COMISSION_PROJECTS/br-math-device",
+                    "C:/Users/satui/OneDrive/Desktop/04 COMISSION_PROJECTS/br-math-device/.pio/libdeps/game/Arduino-LiquidCrystal-I2C-library",
+                    "C:/Users/satui/.platformio/packages/framework-arduino-avr/libraries/Wire/src",
+                    "C:/Users/satui/OneDrive/Desktop/04 COMISSION_PROJECTS/br-math-device/.pio/libdeps/game/MFRC522/src",
+                    "C:/Users/satui/.platformio/packages/framework-arduino-avr/libraries/SPI/src",
+                    "C:/Users/satui/.platformio/packages/framework-arduino-avr/cores/arduino",
+                    "C:/Users/satui/.platformio/packages/framework-arduino-avr/variants/mega",
+                    "C:/Users/satui/.platformio/packages/framework-arduino-avr/libraries/EEPROM/src",
+                    "C:/Users/satui/.platformio/packages/framework-arduino-avr/libraries/HID/src",
+                    "C:/Users/satui/.platformio/packages/framework-arduino-avr/libraries/SoftwareSerial/src",
+                    ""
+                ]
+            },
+            "defines": [
+                "PLATFORMIO=60119",
+                "ARDUINO_AVR_MEGA2560",
+                "F_CPU=16000000L",
+                "ARDUINO_ARCH_AVR",
+                "ARDUINO=10808",
+                "__AVR_ATmega2560__",
+                ""
+            ],
+            "cStandard": "gnu11",
+            "cppStandard": "gnu++11",
+            "compilerPath": "C:/Users/satui/.platformio/packages/toolchain-atmelavr/bin/avr-gcc.exe",
+            "compilerArgs": [
+                "-mmcu=atmega2560",
+                ""
+            ]
+        }
+    ],
+    "version": 4
+}

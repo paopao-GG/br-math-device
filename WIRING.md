@@ -1,8 +1,5 @@
 # Wiring — BR Math Device (Arduino Mega 2560)
 
-Every pin here matches [config.h](config.h). If you change a pin in one place, change it
-in the other, or the device will misbehave in ways that look like broken hardware.
-
 ## Power
 
 | Rail | Feeds |
@@ -44,8 +41,8 @@ screen stays blank or shows only blocks, run an I2C scanner and change it.
 
 ## Potentiometer ×1
 
-There is a **single** potentiometer, shared by all five rounds — it drives whichever
-round is current. Three wires:
+There is a **single** potentiometer, shared by all three levels — it drives whichever
+code slot is being dialed. Three wires:
 
 | Pot leg | Mega pin |
 |---|---|
@@ -55,34 +52,39 @@ round is current. Three wires:
 
 If it reads backwards (turning right lowers the digit), swap the two outer legs.
 
-## LEDs ×5
+## LEDs ×3
 
 Each LED: Mega pin → 220Ω resistor → LED **anode** (long leg); LED **cathode** (short
 leg, flat side of the rim) → GND.
 
-| LED | Mega pin |
-|---|---|
-| LED 1 | **22** |
-| LED 2 | **24** |
-| LED 3 | **26** |
-| LED 4 | **28** |
-| LED 5 | **30** |
+| LED | Mega pin | |
+|---|---|---|
+| LED 1 | **22** | level 1 |
+| LED 2 | **24** | level 2 |
+| LED 3 | **26** | level 3 |
+| ~~LED 4~~ | ~~28~~ | unused |
+| ~~LED 5~~ | ~~30~~ | unused |
 
-## Buttons ×5
+## Buttons ×3
 
 Each button: one leg → Mega pin, other leg → GND. **No resistors** — the firmware uses
 the Mega's internal pullups, so a pressed button reads LOW.
 
-| Button | Mega pin |
-|---|---|
-| Button 1 | **23** |
-| Button 2 | **25** |
-| Button 3 | **27** |
-| Button 4 | **29** |
-| Button 5 | **31** |
+| Button | Mega pin | |
+|---|---|---|
+| Button 1 | **23** | level 1 |
+| Button 2 | **25** | level 2 |
+| Button 3 | **27** | level 3 |
+| ~~Button 4~~ | ~~29~~ | unused |
+| ~~Button 5~~ | ~~31~~ | unused |
 
 On a 4-leg tactile switch, the legs are paired internally. Use two legs that are
 diagonally opposite each other and you can't get it wrong.
+
+**About LEDs/buttons 4 and 5.** They are left over from the earlier five-round build. If
+they are already soldered, leave them — the firmware never configures pins 28–31, so those
+LEDs simply stay dark and those buttons do nothing. Nothing needs unwiring. On a fresh
+build, don't fit them.
 
 ## Passive buzzer
 
@@ -94,19 +96,18 @@ diagonally opposite each other and you can't get it wrong.
 Must be a **passive** buzzer. An active buzzer only makes one fixed tone and the
 per-button tunes won't work.
 
-## Round mapping
+## Level mapping
 
-Round N uses LED N and button N. The single potentiometer is shared by all five rounds,
-so it has no column here. Wire each LED with its button as a set — swapping two rounds
-fails silently, because the device still runs and just lights the wrong LED.
+Level N uses LED N and button N — one set per **level**, not per question. The single
+potentiometer is shared by all three levels, so it has no column here. Wire each LED with
+its button as a set — swapping two levels fails silently, because the device still runs
+and just blinks the wrong LED.
 
-| Round | LED | Button |
-|---|---|---|
-| 1 | 22 | 23 |
-| 2 | 24 | 25 |
-| 3 | 26 | 27 |
-| 4 | 28 | 29 |
-| 5 | 30 | 31 |
+| Level | Questions | Code digits | LED | Button |
+|---|---|---|---|---|
+| 1 | 5 | 1, 2, 3 | 22 | 23 |
+| 2 | 3 | 4 | 24 | 25 |
+| 3 | 1 | 5 | 26 | 27 |
 
 ## Full pin usage
 
@@ -121,10 +122,7 @@ fails silently, because the device still runs and just lights the wrong LED.
 | 25 | Button 2 |
 | 26 | LED 3 |
 | 27 | Button 3 |
-| 28 | LED 4 |
-| 29 | Button 4 |
-| 30 | LED 5 |
-| 31 | Button 5 |
+| 28–31 | *LEDs/buttons 4–5 — wired but unused* |
 | 49 | RC522 RST |
 | 50 (MISO) | RC522 |
 | 51 (MOSI) | RC522 |
