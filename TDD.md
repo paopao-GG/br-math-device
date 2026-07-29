@@ -10,7 +10,7 @@ physically — as an RFID card, and later as a dialed digit — and judge it.
 |-----|-----------|
 | 1 | Arduino Mega |
 | 1 | RFID reader (RC522) |
-| 4 | RFID card, marked A, B, C, D |
+| 12 | RFID card — 3 sets of 4, each marked A, B, C, D |
 | 3 | Push button |
 | 3 | LED |
 | 1 | Potentiometer |
@@ -19,7 +19,15 @@ physically — as an RFID card, and later as a dialed digit — and judge it.
 
 One LED and one push button belong to each of the 3 **levels** — not to each question.
 The **single potentiometer is shared by every level**; it is used only when a level
-reaches its code phase. The same 4 RFID cards are reused for every question.
+reaches its code phase.
+
+## Question sets
+
+There are **three separate sets of paper questions**, each with its own four RFID cards
+(twelve cards in all) and its own answer key. At boot the player picks one set; the rest
+of the game runs against that set alone. Within the chosen set the four cards are the
+A/B/C/D answers, reused for every question exactly as before — the set dimension sits
+entirely in front of the game.
 
 An earlier revision of this device used 5 LEDs and 5 buttons. Those extra parts stay
 wired on the board and are simply unused — see WIRING.md.
@@ -39,11 +47,33 @@ The code is still **5 digits** — it is just no longer one digit per question.
 
 ## System / Game Flow
 
-### 1. Power on
+### 1. Power on — pick a set
 
-The system generates a **5-digit code** — digits 1–9 only, a new code every restart —
-and displays it on the LCD. Line 1 is constant through the game; line 2 changes with
-the phase:
+Before the game starts the LCD asks for a set:
+
+```
+SCAN TO PICK SET
+ANY A/B/C/D CARD
+```
+
+The player scans **any card from the set they want**. The device recognises which set
+the card belongs to and shows it:
+
+```
+SET 2 SELECTED
+PRESS 1 TO START
+```
+
+Scanning a card from a different set changes the choice; scanning a card that is none of
+the twelve plays the miss tone and is ignored. Pressing **button 1** confirms the
+highlighted set and begins the game. (Pressed before any card is scanned, it does
+nothing.) To change sets after starting, power-cycle.
+
+### 2. Start of game
+
+Once a set is confirmed the system generates a **5-digit code** — digits 1–9 only, a new
+code every restart — shows a brief `SET n - START / GET READY...` screen, then displays
+the code. Line 1 is constant through the game; line 2 changes with the phase:
 
 ```
 Quiz phase          Code phase
@@ -54,15 +84,15 @@ ANS:C   [##...]     DIAL:7  [47_..]
 - **Line 1** — the code, then the position: `L1Q3` is level 1, question 3; `L1D2` is
   level 1, code digit 2 of the 3 that level owns.
 - **Line 2, quiz phase** — `ANS:` is the card currently scanned (`-` if none, `?` if the
-  card is not one of the four). The bar has one cell per question *in this level* — 5,
-  3 or 1 wide — with `#` for answered and `.` for still to come.
+  card is not one of the selected set's four). The bar has one cell per question *in this
+  level* — 5, 3 or 1 wide — with `#` for answered and `.` for still to come.
 - **Line 2, code phase** — `DIAL:` is the live potentiometer digit. The bar shows all
   five code slots: digits locked so far, `_` for the slot being dialed, `.` for slots
   no level has reached yet.
 
 The pot is **not** shown during the quiz phase, because it does nothing there.
 
-### 2. Quiz phase
+### 3. Quiz phase
 
 Each question is one multiple-choice question on paper, with choices A, B, C, D. The
 player:
@@ -81,7 +111,7 @@ On the press:
 **There is no way past a question except by answering it correctly.** The device counts
 misses but never blocks or ends the game.
 
-### 3. Code phase
+### 4. Code phase
 
 Once every question in the level is answered, the level switches to code entry. For
 each digit slot the level owns, the player:
@@ -98,7 +128,7 @@ The button press latches the dialed digit, which is what allows a single potenti
 to serve every slot: once latched, the digit is frozen, and turning the pot afterwards
 cannot disturb it — it now drives the next slot instead.
 
-### 4. End of game
+### 5. End of game
 
 After level 3's digit locks, all three LEDs are solid and the LCD shows:
 
@@ -113,22 +143,29 @@ Power-cycle to play again with a new code.
 
 ## Rules
 
-**Answer key.** One card per question, laid out level by level:
+**Answer keys.** One card per question, and a separate key per set (the paper questions
+differ between sets). Laid out level by level:
 
-| Level | Q1 | Q2 | Q3 | Q4 | Q5 |
-|---|---|---|---|---|---|
-| **1** | **B** | **D** | **A** | **C** | **D** |
-| **2** | **A** | **C** | **B** | — | — |
-| **3** | **D** | — | — | — | — |
+| Set | L1 Q1 | Q2 | Q3 | Q4 | Q5 | L2 Q1 | Q2 | Q3 | L3 Q1 |
+|---|---|---|---|---|---|---|---|---|---|
+| **1** | B | D | A | C | D | A | C | B | D |
+| **2** | C | A | D | B | A | D | B | C | A |
+| **3** | D | B | C | A | B | C | A | D | B |
 
-Level 1 has five questions but there are only four cards, so one card must repeat: D is
-used at Q2 and Q5, far enough apart that it does not read as a pattern. No card repeats
-back-to-back anywhere, including across level boundaries.
+Each key uses all four cards in its level-1 span, and no card repeats back-to-back
+anywhere (including across level boundaries). Level 1 has five questions but only four
+cards, so one card repeats per row, kept far apart so it does not read as a pattern.
 
-This is fixed and does not change between restarts — only the 5-digit code is random.
+These are fixed and do not change between restarts — only the 5-digit code is random.
+They live in `ANSWER_KEYS` in [config.h](config.h) and are edited to match the paper.
+
+**Cards.** Twelve, in three sets of four (A/B/C/D). Only the selected set's four cards
+score; a card from another set reads as `?` and counts as wrong. The set is chosen once
+at boot (see step 1) and cannot change without a power-cycle.
 
 **Buttons.** Only the current level's button is live. The other two are ignored, so a
 stray press cannot skip ahead. Buttons 4 and 5 from the old build are never read at all.
+During set selection, button 1 is the confirm button.
 
 **Potentiometer.** One pot, shared. It is idle during a quiz phase, and during a code
 phase it drives the slot being dialed. The digit it is showing when the button is

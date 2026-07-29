@@ -24,13 +24,16 @@
 //     3   |     1     | 5
 //
 // LEVEL_QUESTIONS and LEVEL_CODE_DIGITS are the only source of truth for those
-// counts. The sketch derives every offset into ANSWER_KEY and the code by summing
+// counts. The sketch derives every offset into ANSWER_KEYS and the code by summing
 // them, so there is no second table that has to be kept in agreement.
 
 #define NUM_LEVELS       3
 #define TOTAL_QUESTIONS  9   // must equal the sum of LEVEL_QUESTIONS
 #define CODE_LENGTH      5   // must equal the sum of LEVEL_CODE_DIGITS
 
+#define NUM_SETS    3   // three separate sets of paper questions, each with its own
+                        // four cards and its own answer key. The player picks one at
+                        // boot by scanning any card from it.
 #define NUM_CARDS   4
 #define UID_LENGTH  4   // Mifare Classic 1K UIDs are 4 bytes. If uid_dump reports
                         // a 7-byte UID, widen this to 7 and re-run it.
@@ -57,38 +60,69 @@ enum CardId : uint8_t {
   CARD_NONE    = 5    // nothing scanned yet this question
 };
 
-// Which card answers each question, laid out level by level. Level 1 has five
-// questions but there are only four cards, so one card must repeat: D is used at
-// Q2 and Q5, far enough apart that it does not read as a pattern.
-const CardId ANSWER_KEY[TOTAL_QUESTIONS] = {
-  CARD_B, CARD_D, CARD_A, CARD_C, CARD_D,   // level 1, Q1-Q5
-  CARD_A, CARD_C, CARD_B,                   // level 2, Q1-Q3
-  CARD_D                                    // level 3, Q1
+// Which card answers each question, one row per set, laid out level by level. Level 1
+// has five questions but there are only four cards, so one card must repeat in each
+// row - kept far apart so it does not read as a pattern. Each row uses all four cards
+// in its level-1 span and never repeats a card back-to-back.
+//
+// The three sets are different paper questions, so each has its own key. Edit a row to
+// match whatever the paper for that set actually says.
+// The outer dimension is left for the initializer to fill, so the static_assert
+// below actually counts the rows written here. Pin it to [NUM_SETS] instead and the
+// assert turns tautological - a forgotten row would just zero-fill (to all card A)
+// and pass silently.
+const CardId ANSWER_KEYS[][TOTAL_QUESTIONS] = {
+  //  level 1 (Q1-Q5)                       level 2 (Q1-Q3)         level 3
+  { CARD_B, CARD_D, CARD_A, CARD_C, CARD_D,  CARD_A, CARD_C, CARD_B,  CARD_D },  // set 1
+  { CARD_C, CARD_A, CARD_D, CARD_B, CARD_A,  CARD_D, CARD_B, CARD_C,  CARD_A },  // set 2
+  { CARD_D, CARD_B, CARD_C, CARD_A, CARD_B,  CARD_C, CARD_A, CARD_D,  CARD_B },  // set 3
 };
 
-static_assert(sizeof(ANSWER_KEY) / sizeof(ANSWER_KEY[0]) == TOTAL_QUESTIONS,
-              "ANSWER_KEY must have exactly TOTAL_QUESTIONS entries");
+static_assert(sizeof(ANSWER_KEYS) / sizeof(ANSWER_KEYS[0]) == NUM_SETS,
+              "ANSWER_KEYS must have exactly NUM_SETS rows");
+static_assert(sizeof(ANSWER_KEYS[0]) / sizeof(ANSWER_KEYS[0][0]) == TOTAL_QUESTIONS,
+              "each ANSWER_KEYS row must have exactly TOTAL_QUESTIONS entries");
 
 // ---------------------------------------------------------------------------
-// Card UIDs  <-- FILL THIS IN
+// Card UIDs
 // ---------------------------------------------------------------------------
 //
-// Flash tools/uid_dump/uid_dump.ino, open the Serial Monitor at 9600 baud, tap
-// each card, and paste the four "Paste this:" lines below.
+// Twelve cards: three sets of four (A, B, C, D). The values below were dumped
+// from the physical cards and transcribed from rfid-uid.txt, in file order -
+// lines 1-4 are set 1's A/B/C/D, lines 5-8 set 2, lines 9-12 set 3.
 //
-// ORDER MATTERS. Row 0 must be card A, row 1 card B, row 2 card C, row 3 card D.
-// The answer key above indexes into these rows, so a wrong order means every
-// question is scored against the wrong card.
+// ORDER MATTERS on two axes. The outer index picks the set (0=set 1, ...); the
+// inner index must be A, B, C, D in that order, because ANSWER_KEYS above indexes
+// into it. A wrong row scores that set's questions against the wrong card.
 //
-// The all-zero rows below are placeholders. While they are still here, the
-// device prints a warning on Serial at boot and no scan will ever be correct.
+// To replace a card, flash tools/uid_dump/uid_dump.ino, tap it, and paste the new
+// UID into the right [set][letter] slot. All-zero slots are treated as unconfigured.
 
-const byte CARD_UIDS[NUM_CARDS][UID_LENGTH] = {
-  {0xFA, 0x4F, 0x37, 0x80},   // A
-  {0x1C, 0xA3, 0x17, 0x49},   // B
-  {0xAB, 0x28, 0x07, 0x13},   // C
-  {0xF3, 0xB6, 0x98, 0x19},   // D
+// Outer dimension left implicit for the same reason as ANSWER_KEYS: it makes the
+// row-count static_assert below real rather than tautological.
+const byte CARD_UIDS[][NUM_CARDS][UID_LENGTH] = {
+  {                             // set 1
+    {0xAB, 0x28, 0x07, 0x13},   //   A
+    {0xF3, 0xB6, 0x98, 0x19},   //   B
+    {0x9C, 0xBA, 0x01, 0x02},   //   C
+    {0x4D, 0xE3, 0x01, 0x02},   //   D
+  },
+  {                             // set 2
+    {0x5A, 0xB2, 0x00, 0x02},   //   A
+    {0x71, 0xC9, 0x01, 0x02},   //   B
+    {0x27, 0xA7, 0x00, 0x02},   //   C
+    {0xC5, 0x3C, 0x01, 0x02},   //   D
+  },
+  {                             // set 3
+    {0x19, 0x1A, 0x01, 0x02},   //   A
+    {0x7D, 0x1F, 0x02, 0x02},   //   B
+    {0x49, 0x4D, 0x00, 0x02},   //   C
+    {0x1A, 0x5C, 0x02, 0x02},   //   D
+  },
 };
+
+static_assert(sizeof(CARD_UIDS) / sizeof(CARD_UIDS[0]) == NUM_SETS,
+              "CARD_UIDS must have exactly NUM_SETS sets");
 
 // ---------------------------------------------------------------------------
 // Pins (Arduino Mega 2560)

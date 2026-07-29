@@ -14,11 +14,23 @@ Three levels hold nine questions between them. One LED and one button belong to 
 | 2 | 3 | 4 | 25 | 24 |
 | 3 | 1 | 5 | 27 | 26 |
 
-On power-up the device picks a random 5-digit code (digits 1–9, different every
-boot) and shows it on the LCD. Each level then runs in two phases:
+**Pick a set first.** There are three sets of paper questions, each with its own four
+RFID cards (twelve in all). At boot the LCD shows `SCAN TO PICK SET`; the player scans
+any card from the set they want, then presses **button 1** to confirm:
 
-**Quiz phase** — scan one of the four RFID cards (A/B/C/D) as the answer, press the
-level's button.
+```
+SCAN TO PICK SET          SET 2 SELECTED
+ANY A/B/C/D CARD   -->     PRESS 1 TO START   -->  game begins on set 2
+```
+
+Scanning a different set's card changes the choice; an unrecognised card is ignored.
+To change sets after starting, power-cycle.
+
+Once a set is confirmed the device picks a random 5-digit code (digits 1–9, different
+every boot) and shows it on the LCD. Each level then runs in two phases:
+
+**Quiz phase** — scan one of the selected set's four RFID cards (A/B/C/D) as the
+answer, press the level's button.
 
 ```
 CODE:47391 L1Q3     <- the code, then level 1 question 3
@@ -45,13 +57,17 @@ After level 3's digit locks, all three LEDs are solid and the LCD shows `SOLVED!
 with the code and a `MISSES:n` count. Because a question can only be retried, every
 game ends solved — the miss count is what says how cleanly. Power-cycle for a new code.
 
-The answer key is fixed (`ANSWER_KEY` in [config.h](config.h)):
+Each set has its own fixed answer key (`ANSWER_KEYS` in [config.h](config.h)), laid out
+`L1 (5) | L2 (3) | L3 (1)`:
 
-| Level | Q1 | Q2 | Q3 | Q4 | Q5 |
-|---|---|---|---|---|---|
-| **1** | **B** | **D** | **A** | **C** | **D** |
-| **2** | **A** | **C** | **B** | — | — |
-| **3** | **D** | — | — | — | — |
+| Set | L1 Q1–5 | L2 Q1–3 | L3 |
+|---|---|---|---|
+| **1** | B D A C D | A C B | D |
+| **2** | C A D B A | D B C | A |
+| **3** | D B C A B | C A D | B |
+
+Only the selected set's cards score; a card from another set reads as `?` and counts
+wrong.
 
 ## Wiring (Arduino Mega 2560)
 
@@ -96,10 +112,13 @@ the resulting error message (`no member named 'begin'`) is otherwise baffling.
 
 ## Bring-up
 
-**1. Read the card UIDs.** The firmware can't recognise your cards until it knows
-their UIDs, and those are burned into each card at the factory. Open
-`tools/uid_dump/uid_dump.ino` in the Arduino IDE, upload it, open the Serial Monitor
-at 9600 baud, and tap each card. It prints a paste-ready line per card:
+**1. The card UIDs are already filled in.** All twelve (three sets × A/B/C/D) are in
+`CARD_UIDS` in [config.h](config.h), transcribed from `rfid-uid.txt`. You only need the
+next two steps if you **replace a card** or add a new one.
+
+**2. (Only if replacing a card) Read its UID.** Open `tools/uid_dump/uid_dump.ino` in
+the Arduino IDE, upload it, open the Serial Monitor at 9600 baud, and tap the card. It
+prints a paste-ready line:
 
 ```
 Card detected!
@@ -107,10 +126,10 @@ Card detected!
   Paste this: {0xDE, 0xAD, 0xBE, 0xEF},
 ```
 
-**2. Paste them into `CARD_UIDS` in [config.h](config.h), in the order A, B, C, D.**
-The order matters — the answer key indexes into that table, so a wrong order scores
-every question against the wrong card. If a card prints nothing at all, the reader is
-miswired or on 5V.
+Paste it into the right `CARD_UIDS[set][letter]` slot. The order matters on both axes —
+outer index is the set (0=set 1…), inner is A, B, C, D — because `ANSWER_KEYS` indexes
+into it, so a wrong slot scores that set against the wrong card. If a card prints nothing
+at all, the reader is miswired or on 5V.
 
 **3. Flash the game.** Open `br-math-device.ino` in the Arduino IDE and upload.
 
@@ -121,7 +140,10 @@ game, `pio run -d tools/uid_dump -t upload` for the UID reader.)
 
 - Blank or garbled LCD: run an I2C scanner and change `LCD_ADDR` in config.h to `0x3F`.
 - Scan beep too quiet to hear across the room: raise the duration in `TUNE_SCAN`
-  (config.h). It beeps on every card read, including cards that aren't one of the four.
+  (config.h). It beeps on every recognised card read.
+- Set selection sanity check: at boot, scan one card from each set — each should report
+  its own set (`SET 1/2/3`). If two different cards report the same set, or the wrong
+  one, the `CARD_UIDS` blocks in config.h are ordered wrong.
 - Digit flickering between two values as the pot rests: raise `POT_HYSTERESIS`. Pot
   feeling sticky or refusing to reach 1 or 9: lower it.
 - Turning the pot must only ever change the digit in the `_` slot. If it also moves a
@@ -137,8 +159,8 @@ game, `pio run -d tools/uid_dump -t upload` for the UID reader.)
 ## Layout
 
 - `br-math-device.ino` — the game
-- `config.h` — pins, answer key, card UIDs, tunes, tuning constants. Everything you'd
-  want to change is in here.
+- `config.h` — pins, per-set answer keys, card UIDs, tunes, tuning constants. Everything
+  you'd want to change is in here.
 - `WIRING.md` — wire-by-wire connection tables
 - `TDD.md` — the design doc: hardware, game flow, rules
 - `tools/uid_dump/` — the card UID reader

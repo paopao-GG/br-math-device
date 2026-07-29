@@ -4,6 +4,11 @@
  * A 3-level multiple-choice quiz prop. The questions themselves are on paper;
  * the device only judges the answers.
  *
+ * There are three separate SETS of paper questions, each with its own four RFID
+ * cards (twelve cards in all) and its own answer key. At boot the player picks a
+ * set by scanning any card from it and pressing button 1 to confirm; the rest of
+ * the game then runs against that set alone.
+ *
  * Three levels hold nine questions between them - five, then three, then one.
  * Each level runs in two phases:
  *
@@ -48,6 +53,7 @@
 // ---------------------------------------------------------------------------
 
 enum GameState : uint8_t {
+  STATE_SELECT,    // choosing which question set to play, before the game proper
   STATE_PLAYING,
   STATE_DONE
 };
@@ -63,8 +69,11 @@ enum Phase : uint8_t {
 MFRC522 mfrc522(RFID_SS_PIN, RFID_RST_PIN);
 LiquidCrystal_I2C lcd(LCD_ADDR, LCD_COLS, LCD_ROWS);
 
-GameState state = STATE_PLAYING;
+GameState state = STATE_SELECT;
 Phase     phase = PHASE_QUIZ;
+
+uint8_t selectedSet = 0;       // which question set is being played, 0..NUM_SETS-1
+int8_t  pendingSet  = -1;      // set highlighted during selection, -1 = none yet
 
 uint8_t currentLevel    = 0;   // 0..NUM_LEVELS-1
 uint8_t currentQuestion = 0;   // index within the current level
@@ -108,7 +117,7 @@ uint8_t digitBase(uint8_t level) {
   return base;
 }
 
-// Index into ANSWER_KEY for the question on screen right now.
+// Index into a set's ANSWER_KEYS row for the question on screen right now.
 uint8_t currentQuestionIndex() {
   return questionBase(currentLevel) + currentQuestion;
 }
@@ -228,34 +237,50 @@ void syncButton(uint8_t level) {
 // RFID
 // ---------------------------------------------------------------------------
 
-// CARD_NONE means nothing was on the reader this pass, so an existing pending
-// answer is left alone.
-CardId pollRfid() {
-  if (!mfrc522.PICC_IsNewCardPresent()) return CARD_NONE;
-  if (!mfrc522.PICC_ReadCardSerial())   return CARD_NONE;
+// Reads a card if one is on the reader. Returns false when nothing was there this
+// pass, so a pending answer is left alone. Returns true whenever a card was read -
+// even a card that is none of ours - so the caller can still beep and show '?'.
+// A wrong-size UID leaves out[] zeroed, which matches no real card.
+bool readUid(byte out[UID_LENGTH]) {
+  if (!mfrc522.PICC_IsNewCardPresent()) return false;
+  if (!mfrc522.PICC_ReadCardSerial())   return false;
 
-  CardId found = CARD_UNKNOWN;
-
+  memset(out, 0, UID_LENGTH);
   if (mfrc522.uid.size == UID_LENGTH) {
-    for (uint8_t c = 0; c < NUM_CARDS; c++) {
-      if (memcmp(mfrc522.uid.uidByte, CARD_UIDS[c], UID_LENGTH) == 0) {
-        found = (CardId)c;
-        break;
-      }
-    }
+    memcpy(out, mfrc522.uid.uidByte, UID_LENGTH);
   }
 
   // Required, or the same card cannot be scanned a second time.
   mfrc522.PICC_HaltA();
   mfrc522.PCD_StopCrypto1();
 
-  return found;
+  return true;
+}
+
+// Which of the given set's four cards this UID is, or CARD_UNKNOWN. During play a
+// card from any OTHER set falls through to CARD_UNKNOWN and reads as '?'.
+CardId matchInSet(const byte uid[UID_LENGTH], uint8_t set) {
+  for (uint8_t c = 0; c < NUM_CARDS; c++) {
+    if (memcmp(uid, CARD_UIDS[set][c], UID_LENGTH) == 0) return (CardId)c;
+  }
+  return CARD_UNKNOWN;
+}
+
+// Which set this UID belongs to, or -1 if it is none of the twelve. Used only
+// during selection. UIDs are unique across sets, so the first match is the answer.
+int8_t matchSet(const byte uid[UID_LENGTH]) {
+  for (uint8_t s = 0; s < NUM_SETS; s++) {
+    if (matchInSet(uid, s) != CARD_UNKNOWN) return s;
+  }
+  return -1;
 }
 
 bool uidsConfigured() {
-  for (uint8_t c = 0; c < NUM_CARDS; c++) {
-    for (uint8_t b = 0; b < UID_LENGTH; b++) {
-      if (CARD_UIDS[c][b] != 0x00) return true;
+  for (uint8_t s = 0; s < NUM_SETS; s++) {
+    for (uint8_t c = 0; c < NUM_CARDS; c++) {
+      for (uint8_t b = 0; b < UID_LENGTH; b++) {
+        if (CARD_UIDS[s][c][b] != 0x00) return true;
+      }
     }
   }
   return false;
@@ -382,7 +407,7 @@ void startQuestion() {
   Serial.print('/');
   Serial.print(LEVEL_QUESTIONS[currentLevel]);
   Serial.print(F(" expects card "));
-  Serial.println(cardLetter(ANSWER_KEY[currentQuestionIndex()]));
+  Serial.println(cardLetter(ANSWER_KEYS[selectedSet][currentQuestionIndex()]));
 }
 
 void enterCodePhase() {
@@ -430,7 +455,7 @@ void finishGame() {
 // QUIZ phase: judge the scanned card. A wrong answer costs a miss and leaves the
 // question exactly where it was - the only way forward is to get it right.
 void submitAnswer() {
-  bool correct = (scannedCard == ANSWER_KEY[currentQuestionIndex()]);
+  bool correct = (scannedCard == ANSWER_KEYS[selectedSet][currentQuestionIndex()]);
 
   Serial.print(F("    answered "));
   Serial.print(cardLetter(scannedCard));
@@ -526,7 +551,9 @@ void newGame() {
   prevLine2[0] = '\0';
 
   lcd.setCursor(0, 0);
-  lcd.print(F("START"));
+  lcd.print(F("SET "));
+  lcd.print(selectedSet + 1);
+  lcd.print(F(" - START"));
   lcd.setCursor(0, 1);
   lcd.print(F("GET READY..."));
   delay(1500);
@@ -534,6 +561,68 @@ void newGame() {
 
   state = STATE_PLAYING;
   startLevel(0);
+}
+
+// ---------------------------------------------------------------------------
+// Set selection (runs once at boot, before the game proper)
+// ---------------------------------------------------------------------------
+
+// Redrawn every loop, but writeLine only pushes a line when it actually changes,
+// so the prompt is effectively static until a scan flips it.
+void drawSelectPrompt() {
+  if (pendingSet < 0) {
+    writeLine(0, "SCAN TO PICK SET", prevLine1);
+    writeLine(1, "ANY A/B/C/D CARD", prevLine2);
+  } else {
+    char line1[LCD_COLS + 1];
+    snprintf(line1, sizeof(line1), "SET %d SELECTED", pendingSet + 1);
+    writeLine(0, line1, prevLine1);
+    writeLine(1, "PRESS 1 TO START", prevLine2);
+  }
+}
+
+void startSelect() {
+  state = STATE_SELECT;
+  pendingSet = -1;
+
+  // Sync button 1's debouncer so a button already held at boot cannot confirm a
+  // set the instant one is scanned.
+  syncButton(0);
+
+  lcd.clear();
+  prevLine1[0] = '\0';
+  prevLine2[0] = '\0';
+  drawSelectPrompt();
+
+  Serial.println(F("Select a set: scan any card from it, then press button 1."));
+}
+
+void updateSelect() {
+  byte uid[UID_LENGTH];
+  if (readUid(uid)) {
+    int8_t s = matchSet(uid);
+    if (s >= 0) {
+      playTune(TUNE_SCAN, TUNE_SCAN_LENGTH);
+      pendingSet = s;
+      Serial.print(F("  set "));
+      Serial.print(s + 1);
+      Serial.println(F(" detected - press 1 to confirm, or scan another set"));
+    } else {
+      playTune(TUNE_WRONG, TUNE_WRONG_LENGTH);
+      Serial.println(F("  unknown card - not part of any set"));
+    }
+  }
+
+  drawSelectPrompt();
+
+  // Button 1 confirms the highlighted set. Ignored until a set has been scanned.
+  if (pendingSet >= 0 && buttonPressed(0)) {
+    selectedSet = pendingSet;
+    Serial.print(F("Set "));
+    Serial.print(selectedSet + 1);
+    Serial.println(F(" selected."));
+    newGame();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -573,23 +662,25 @@ void setup() {
 
   if (!uidsConfigured()) {
     Serial.println(F("WARNING: CARD_UIDS in config.h is still all zeros."));
-    Serial.println(F("         Run tools/uid_dump and paste the four UIDs in."));
-    Serial.println(F("         Until then, no scan can ever be scored correct."));
+    Serial.println(F("         Run tools/uid_dump and paste the twelve UIDs in."));
+    Serial.println(F("         Until then, no set can be selected or scored."));
   }
 
-  newGame();
+  startSelect();
 }
 
 void loop() {
+  if (state == STATE_SELECT) { updateSelect(); return; }
   if (state != STATE_PLAYING) return;   // game is over; power-cycle to restart
 
   if (phase == PHASE_QUIZ) {
-    CardId scan = pollRfid();
-    if (scan != CARD_NONE) {
-      scannedCard = scan;   // last scan wins - rescanning replaces the answer
+    byte uid[UID_LENGTH];
+    if (readUid(uid)) {
+      // Last scan wins. A card from another set matches nothing here and reads '?'.
+      scannedCard = matchInSet(uid, selectedSet);
       playTune(TUNE_SCAN, TUNE_SCAN_LENGTH);
       Serial.print(F("    scanned card "));
-      Serial.println(cardLetter(scan));
+      Serial.println(cardLetter(scannedCard));
     }
     renderQuiz();
   } else {
